@@ -1,0 +1,45 @@
+{:itonami.blueprint/id "cloud-itonami-isic-3290"
+ :itonami.blueprint/name "Other manufacturing n.e.c."
+ :itonami.blueprint/isic-rev5 "3290"
+ :itonami.blueprint/domain :writing-instruments/manufacturing
+ :itonami.blueprint/license "AGPL-3.0-or-later"
+ :itonami.blueprint/social-impact [:worker-safety :materials-safety :consumer-protection]
+ :itonami.blueprint/governor :writing-instrument-plant-operations-governor
+ :itonami.blueprint/robotics true
+ :itonami.blueprint/required-technologies [:robotics :identity :forms :dmn :bpmn :audit-ledger :cae]
+ :itonami.blueprint/optional-technologies []
+ :itonami.blueprint/status :public-oss
+ :itonami.blueprint/maturity :implemented
+ :itonami.blueprint/implemented-slice
+ "WritingInstrumentAdvisor ⊣ Writing Instrument Plant Operations
+ Governor, langgraph-clj StateGraph, append-only audit ledger. ISIC
+ 3290 (Other manufacturing n.e.c.) is a broad residual manufacturing
+ category (e.g. brooms/brushes, umbrellas, buttons, pens/pencils,
+ artificial flowers); this build's concrete illustration is
+ pen/pencil/writing-instrument manufacturing -- a PLANT OPERATIONS
+ COORDINATION actor for injection-molding/assembly lines producing
+ finished ballpoint pens, pencils, markers, and fountain pens -- not
+ direct molding/assembly-line-equipment control authority and not a
+ materials-safety-certification (e.g. ACMI AP/CL seal under ASTM
+ D4236, or an equivalent national/regional standard) authority. Four
+ ops (`:log-production-batch` / `:schedule-maintenance` /
+ `:flag-safety-concern` / `:coordinate-shipment`), all `:effect
+ :propose` only. Thirteen concrete governor checks elaborate this
+ blueprint's four HARD invariants: propose-only effect, closed op
+ allowlist, closed proposal-effect allowlist (no direct
+ molding/assembly-line-equipment control), permanent equipment-actuate
+ block, permanent materials-safety-certification-authority block (this
+ actor never self-issues an ACMI AP/CL / ASTM D4236 materials-safety
+ compliance certification), independent plant-equipment
+ verification/registration before maintenance scheduling, independent
+ batch verification/registration before shipment coordination,
+ independent shipment-quantity recompute against the batch's own
+ logged production quantity, double-schedule guard, product-type
+ validation, materials-safety-pass-percent plausibility validation
+ (ink/pigment/solvent toxicity and labeling compliance testing),
+ batch-weight plausibility validation, and defect-rate plausibility
+ validation. Safety-concern flagging (materials-safety -- ink/pigment
+ toxicity, solvent exposure -- or equipment-safety concern) ALWAYS
+ escalates to a human plant supervisor; `:log-production-batch` is the
+ only op eligible to auto-commit, and only at phase 3 when
+ governor-clean."}
