@@ -29,12 +29,15 @@
   registers via `penmfg.registry`.
 
   Fields rendered are only fields the domain model actually carries. In
-  particular `:approved-by` is NOT rendered on a committed shipment /
-  maintenance record: `penmfg.operation`'s `:request-approval` node puts
+  particular `:approved-by` is NOT read off a committed shipment /
+  maintenance record. `penmfg.operation`'s `:request-approval` node puts
   the approver on the record's `:payload`, while `store/commit-record!`
-  persists `:value` -- so the approver is shown from the run timeline
-  (where it is real), not from the stored record (where it does not
-  exist).
+  destructures `{:keys [effect path value]}` and never reads `:payload`
+  -- so approver attribution never reaches the SSoT. The page therefore
+  joins the approver back from the graph's own `:approval-granted` audit
+  fact (`approvers-by-subject`) and labels the column as such, rather
+  than either printing a record field that does not exist or quietly
+  dropping the attribution.
 
   Styling is `jp-go-dds` (デジタル庁デザインシステム), this workspace's
   base design system, via its compatibility skin
@@ -221,6 +224,7 @@
            :verdict (:verdict final)
            :paused? paused?
            :escalation (first (filter #(= :approval-requested (:t %)) audit))
+           :granted (first (filter #(= :approval-granted (:t %)) audit))
            :human (when r2 (:status approval))
            :disposition (:disposition final))))
 
@@ -461,6 +465,40 @@
                     (str (code registry/defect-rate-min-percent) " … "
                          (code registry/defect-rate-max-percent)))])))
 
+;; ------------------- approver attribution (known scaffold defect) -------------------
+
+(defn- approvers-by-subject
+  "subject -> approver id, joined back out of the graph's OWN
+  `:approval-granted` audit facts.
+
+  This join exists because the approver is genuinely absent from the
+  SSoT. `penmfg.operation`'s `:request-approval` node attaches the
+  approver under the committed record's `:payload` key, while
+  `penmfg.store/commit-record!` destructures `{:keys [effect path
+  value]}` and never reads `:payload` -- so `:approved-by` is dropped on
+  the floor before anything is written. Reading it off the stored
+  shipment / maintenance record would therefore be a fabrication; the
+  audit fact is the only place it is real."
+  [runs]
+  (into {} (for [{:keys [granted]} runs :when granted]
+             [(:subject granted) (:by granted)])))
+
+(def ^:private approver-caveat
+  (str "<strong>Approver attribution:</strong> the <em>Approver</em> column below is joined "
+       "back from the graph's own <code>:approval-granted</code> audit fact. It is "
+       "<strong>not</strong> a field on the stored record, and this page does not pretend "
+       "otherwise: <code>penmfg.operation</code>'s <code>:request-approval</code> node attaches "
+       "the approver under the record's <code>:payload</code> key, but "
+       "<code>penmfg.store/commit-record!</code> destructures "
+       "<code>{:keys [effect path value]}</code> and never reads <code>:payload</code>, so "
+       "approver attribution never reaches the SSoT. A record with no approval in this run "
+       "shows —."))
+
+(defn- approver-cell [approvers id]
+  (if-let [by (get approvers id)]
+    (str (code by) " <span class=\"muted\">(from audit, not on record)</span>")
+    "<span class=\"muted\">—</span>"))
+
 (defn- last-fact-for [led subject]
   (last (filter #(= subject (:subject %)) led)))
 
@@ -523,35 +561,37 @@
                      (esc (count (filter #(= (:id e) (:equipment-id %))
                                          (store/all-maintenance db)))))))))
 
-(defn- maintenance-section [db]
+(defn- maintenance-section [db approvers]
   (let [ms (store/all-maintenance db)]
     (card "Maintenance schedule drafts"
           (str "Committed drafts from " (code "penmfg.store/all-maintenance") ". The maintenance "
                "number is minted by " (code "penmfg.registry/register-maintenance")
                " at commit time and the draft record it builds is "
                (code "status: draft-unsigned") " — signature is the human supervisor's act, not "
-               "this actor's.")
+               "this actor's.<br>" approver-caveat)
           (if (seq ms)
             (table ["Draft" "Equipment" "Type" "Scheduled date" "actuate-equipment?"
-                    "scheduled?" "Maintenance number"]
+                    "scheduled?" "Maintenance number" "Approver"]
                    (for [m ms]
                      (tr (code (:id m)) (code (:equipment-id m)) (fmt (:maintenance-type m))
                          (fmt (:scheduled-date m)) (flag (:actuate-equipment? m))
-                         (flag (:scheduled? m)) (fmt (:maintenance-number m)))))
+                         (flag (:scheduled? m)) (fmt (:maintenance-number m))
+                         (approver-cell approvers (:id m)))))
             "<p class=\"muted\">none committed in this run</p>"))))
 
-(defn- shipments-section [db]
+(defn- shipments-section [db approvers]
   (let [hist (store/shipment-history db)
         ships (keep #(store/shipment db (get % "shipment_id")) hist)]
     (card "Shipment coordination drafts"
           (str "Committed drafts, joined from " (code "penmfg.store/shipment-history")
                " back to each stored shipment record. This is a draft a plant coordinator keeps — "
-               "it dispatches no freight carrier.")
+               "it dispatches no freight carrier.<br>" approver-caveat)
           (if (seq ships)
-            (table ["Draft" "Batch" "Units" "Destination" "Shipment number"]
+            (table ["Draft" "Batch" "Units" "Destination" "Shipment number" "Approver"]
                    (for [s ships]
                      (tr (code (:id s)) (code (:batch-id s)) (fmt (:units s))
-                         (fmt (:destination s)) (fmt (:shipment-number s)))))
+                         (fmt (:destination s)) (fmt (:shipment-number s))
+                         (approver-cell approvers (:id s)))))
             "<p class=\"muted\">none committed in this run</p>"))))
 
 (defn- concerns-section [db]
@@ -594,7 +634,8 @@
 (defn render
   "The whole page, from the post-run store and the run log."
   [{:keys [db runs]}]
-  (str "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\">"
+  (let [approvers (approvers-by-subject runs)]
+   (str "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\">"
        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
        "<meta name=\"color-scheme\" content=\"light\">"
        "<title>Operator console — cloud-itonami-isic-3290 (penmfg)</title>"
@@ -624,8 +665,8 @@
                           (bounds-section)
                           (batches-section db)
                           (equipment-section db)
-                          (maintenance-section db)
-                          (shipments-section db)
+                          (maintenance-section db approvers)
+                          (shipments-section db approvers)
                           (concerns-section db)
                           (ledger-section db)]))
        "\n</main>\n<footer>"
@@ -635,7 +676,7 @@
        "<code>penmfg.store</code> seed. Deterministic — no clock, no randomness, no network. "
        "Styled with <code>jp-go-dds</code> (デジタル庁デザインシステム). "
        "No usage, revenue or performance metric is claimed anywhere on this page."
-       "</footer>\n</body>\n</html>\n"))
+       "</footer>\n</body>\n</html>\n")))
 
 (defn -main [& args]
   (let [out (or (first args) "docs/samples/operator-console.html")
