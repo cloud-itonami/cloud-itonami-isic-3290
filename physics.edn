@@ -1,0 +1,43 @@
+;; What this vertical's robot physically does, declared for
+;; kotoba.robotics.process (kotoba-lang/robotics). `kbb -M:dev:physics` runs it.
+;;
+;; README: ISIC 3290 is a residual class; this build's concrete illustration
+;; is a writing-instrument plant that injection-moulds, assembles and
+;; QC-tests ballpoint pens, pencils, markers and fountain pens. The physical
+;; work around that plant: a moulded polypropylene pen barrel cooling in the
+;; tool before ejection, pumping viscous ballpoint ink to the refill-filling
+;; heads, and an arm moving totes of boxed pens off the packing line.
+;;
+;; Every number without a cited source is marked `estimate` in its :basis.
+;; Replacing an estimate with a sourced value is this bot's growth work.
+{:physics/schema "itonami.physical-ai.spec.v1"
+ :repo "cloud-itonami/cloud-itonami-isic-3290"
+ :cases
+ [{:id :pen-barrel-mould-cooling
+   :kind :thermal
+   :procedure "moulded polypropylene pen barrel cools against the 30 C mould wall from its 220 C melt until its mid-wall falls to the 100 C ejection temperature. Half the wall is modelled with an adiabatic (symmetry) back face, so the back face is the mid-wall"
+   :params {:conductivity-w-mk 0.20 :density-kg-m3 900.0 :specific-heat-j-kgk 1900.0
+            :t0-c 220.0 :t-hot-c 30.0 :front-fixed? true :h-back-w-m2k 0.0
+            :threshold-c 100.0 :threshold-direction :falling :duration-s 120.0 :nodes 11}
+   :sweep {:param :thickness-m :values [0.0004 0.0006 0.0008 0.0010 0.0013]}
+   :quantity :time-to-threshold-s
+   :limit {:max 6.0 :basis "estimate: a 6-second cooling share of a high-cavitation pen-barrel moulding cycle; PP properties and the 100 C ejection temperature are estimates"}
+   :boundary {:lo 0.0002 :hi 0.003}}
+  {:id :ballpoint-ink-feed
+   :kind :pipe-flow
+   :procedure "gear pump feeds viscous ballpoint paste ink from the day tank to the refill-filling heads (8 mm bore hose, 6 m)"
+   :params {:diameter-m 0.008 :length-m 6.0 :roughness-m 1.0e-6
+            :density-kg-m3 1100.0 :viscosity-pa-s 8.0 :pump-efficiency 0.50 :elevation-m 1.0}
+   :sweep {:param :q-m3s :values [1.0e-7 2.0e-7 4.0e-7 6.0e-7 1.0e-6]}
+   :quantity :pressure-drop-pa
+   :limit {:max 1.0e6 :basis "estimate: 10 bar working-pressure rating of the ink hose and gear pump"}
+   :boundary {:lo 5.0e-8 :hi 3.0e-6}}
+  {:id :tote-off-packing-line
+   :kind :manipulator
+   :procedure "palletising arm lifts a tote of boxed pens off the packing-line outfeed and sets it on the pallet"
+   :params {:l1-m 0.70 :l2-m 0.60 :m1-kg 12.0 :m2-kg 8.0
+            :from [0.80 0.20] :to [0.40 -0.20] :duration-s 2.0 :steps 400}
+   :sweep {:param :payload-kg :values [4.0 8.0 12.0 16.0 22.0]}
+   :quantity :peak-tau1-nm
+   :limit {:max 300.0 :basis "estimate: continuous shoulder torque of a ~20 kg-payload palletising arm class"}
+   :boundary {:lo 1.0 :hi 80.0}}]}
